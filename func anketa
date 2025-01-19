@@ -1,0 +1,40 @@
+	chatID := update.Message.Chat.ID
+	text := update.Message.Text
+
+	switch userState[chatID] {
+	case "ASK_NAME":
+		answer[chatID].Name = text
+
+		userState[chatID] = "ASK_AGE"
+		sendText(chatID, "Сколько вам лет?")
+
+	case "ASK_AGE":
+		age, err := strconv.Atoi(text)
+		if err != nil {
+			sendText(chatID, "Ошибка: введите число, пожалуйста")
+			return
+		}
+		answer[chatID].Age = age
+
+		userState[chatID] = "ASK_CITY"
+		sendText(chatID, "Из какого вы города?")
+
+	case "ASK_CITY":
+		answer[chatID].City = text
+
+		// Пример: если город — Москва
+		if strings.EqualFold(answer[chatID].City, "Москва") {
+			sendText(chatID, "Отлично! Можете записаться на тренировки в World Class:\nhttps://special.worldclass.ru/new/clubs/simvol")
+		}
+
+		userState[chatID] = "ASK_ABOUT"
+		sendText(chatID, "Расскажите о себе")
+
+	case "ASK_ABOUT":
+		answer[chatID].About = text
+
+		// Анкета завершена
+		userState[chatID] = ""
+		sendText(chatID, "Спасибо! Ваши данные сохранены. Вы можете посмотреть их в «Профиль».")
+	}
+}
