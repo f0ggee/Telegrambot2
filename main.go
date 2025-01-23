@@ -16,26 +16,22 @@ import (
 
 // Шаги пошагового опроса (профиля)
 const (
-	profileStepHeight = 1 // Вопрос о росте
-	profileStepWeight = 2 // Вопрос о весе
-	profileStepAge    = 3 // Вопрос о возрасте
-	profileStepGender = 4 // Вопрос о поле
-	profileStepDone   = 5 // Профиль заполнен
+	profileStepHeight = 1
+	profileStepWeight = 2
+	profileStepAge    = 3
+	profileStepGender = 4
+	profileStepDone   = 5
 )
 
-// Шаги пошагового опроса (калорий)
+// Шаги для дневника
 const (
-	calorieStepWeight = 101
-	calorieStepHeight = 102
-	calorieStepAge    = 103
-	calorieStepGender = 104
-	calorieStepDone   = 105
+	diaryStepAdd = 201
 )
 
-// userStep хранит текущий шаг (либо для профиля, либо для калорий) для каждого пользователя
+// userStep хранит текущий шаг (либо для профиля, либо для дневника) для каждого пользователя
 var userStep = make(map[int64]int)
 
-// user_profile хранит данные о пользователе (из первого кода)
+// user_profile хранит данные о пользователе
 type user_profile struct {
 	Height int
 	Weight int
@@ -43,10 +39,10 @@ type user_profile struct {
 	Gender string
 }
 
-// userProfiles хранит профили по chatID (из первого кода)
+// userProfiles хранит профили по chatID
 var userProfiles = make(map[int64]*user_profile)
 
-// Структура для описания «кнопок» (из первого кода)
+// Структура для описания «кнопок»
 type button struct {
 	name string
 	data string
@@ -54,8 +50,9 @@ type button struct {
 
 var bot *tgbotapi.BotAPI
 
-// ===================== ЛОГИКА РАСЧЁТА КАЛОРИЙ (из второго кода) =====================
-
+// ===================== ЛОГИКА РАСЧЁТА КАЛОРИЙ =====================
+// Функция считает калории по формуле Харриса-Бенедикта (упрощённой).
+// gender здесь ожидается "мужской" или "женский".
 func calculateCalories(gender string, weight float64, height float64, age int) float64 {
 	if gender == "мужской" {
 		return 88.36 + (13.4 * weight) + (4.8 * height) - (5.7 * float64(age))
@@ -63,20 +60,45 @@ func calculateCalories(gender string, weight float64, height float64, age int) f
 	return 447.6 + (9.2 * weight) + (3.1 * height) - (4.3 * float64(age))
 }
 
-// Для калорийного опроса будем хранить временно данные в отдельной карте (как во втором коде)
-var calorieData = make(map[int64]map[string]string)
+// ===================== ЛОГИКА ДНЕВНИКА =====================
+
+// Структура, описывающая одну запись в дневнике
+type DiaryEntry struct {
+	Date time.Time // Когда была сделана запись
+	Text string    // Текст записи
+}
+
+// userDiary хранит записи в дневнике для каждого chatID
+var userDiary = make(map[int64][]DiaryEntry)
+
+// Меню «Дневник»
+func diaryMenu() tgbotapi.InlineKeyboardMarkup {
+	states := []button{
+		{name: "Добавить запись", data: "diary_add"},
+		{name: "Показать записи", data: "diary_show"},
+		{name: "Назад", data: "back"},
+	}
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, st := range states {
+		btn := tgbotapi.NewInlineKeyboardButtonData(st.name, st.data)
+		row := tgbotapi.NewInlineKeyboardRow(btn)
+		rows = append(rows, row)
+	}
+	return tgbotapi.NewInlineKeyboardMarkup(rows...)
+}
 
 // ===================== MAIN =====================
 func main() {
-	// 1. Загружаем токен из .env (если нет, то можно прописать напрямую)
+	// Загружаем токен из .env (или прописываем вручную)
 	err := godotenv.Load(".env")
 	if err != nil {
 		log.Println(".env not loaded (если токен прописан вручную, то всё ок)")
 	}
 
 	botToken := os.Getenv("TG_BOT_API")
-	// Если хотите — можно захардкодить токен вместо env
-	// botToken := "7182429562:...ваш_токен..."
+	if botToken == "" {
+		log.Fatal("Нет токена TG_BOT_API в .env")
+	}
 
 	bot, err = tgbotapi.NewBotAPI(botToken)
 	if err != nil {
@@ -93,13 +115,11 @@ func main() {
 
 	log.Println("Бот запущен...")
 
-	// 3. Цикл обработки входящих сообщений/колбэков
+	// Цикл обработки входящих сообщений/колбэков
 	for update := range updates {
 		if update.CallbackQuery != nil {
-			// Обработаем нажатие на инлайн-кнопку
 			handleCallback(update)
 		} else if update.Message != nil {
-			// Обработаем обычное сообщение
 			if update.Message.IsCommand() {
 				handleCommands(update)
 			} else {
@@ -109,7 +129,7 @@ func main() {
 	}
 }
 
-// ===================== МЕНЮ (из первого кода) =====================
+// ===================== МЕНЮ =====================
 
 // Главное меню
 func startMenu() tgbotapi.InlineKeyboardMarkup {
@@ -133,9 +153,9 @@ func startMenu() tgbotapi.InlineKeyboardMarkup {
 // Меню «Тренировка»
 func traineMenu() tgbotapi.InlineKeyboardMarkup {
 	states := []button{
-		{name: "Тренировка: лёгкий уровень", data: "Light"},
-		{name: "Тренировка: средний уровень", data: "Midle"},
-		{name: "Тренировка: сложный уровень", data: "Hard"},
+		{name: "🟢Тренировка: лёгкий уровень🟢", data: "Light"},
+		{name: "🟡Тренировка: средний уровень🟡", data: "Midle"},
+		{name: "🔴Тренировка: сложный уровень🔴", data: "Hard"},
 		{name: "Назад", data: "back"},
 	}
 
@@ -149,15 +169,15 @@ func traineMenu() tgbotapi.InlineKeyboardMarkup {
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
-// Лёгкий уровень тренировок
+// Лёгкий уровень
 func enlightenment() tgbotapi.InlineKeyboardMarkup {
 	states := []button{
-		{name: "Прокачка бицепса", data: "Bicepslight"},
-		{name: "Прокачка передней части руки", data: "handle up"},
-		{name: "Прокачка средней части руки", data: "handle middle"},
-		{name: "Прокачка задней части руки", data: "handle behind"},
-		{name: "Прокачка трицепса", data: "upgrade triceps"},
-		{name: "Назад", data: "back2"},
+		{name: "Спина (лёг.)", data: "backLight"},
+		{name: "Руки (лёг.)", data: "handleLight"},
+		{name: "Ноги (лёг.)", data: "kneesLight"},
+		{name: "Трицепс (лёг.)", data: "tricepsLight"},
+		{name: "Бицепс (лёг.)", data: "bicepsLight"},
+		{name: "Назад", data: "lightBack"},
 	}
 	var rows [][]tgbotapi.InlineKeyboardButton
 	for _, st := range states {
@@ -172,14 +192,33 @@ func enlightenment() tgbotapi.InlineKeyboardMarkup {
 // Средний уровень
 func enlightenmentMidle() tgbotapi.InlineKeyboardMarkup {
 	states := []button{
-		{name: "Прокачка бицепса (ср.)", data: "BicepslightM"},
-		{name: "Прокачка передней части руки (ср.)", data: "handle upM"},
-		{name: "Прокачка средней части руки (ср.)", data: "handle middleM"},
-		{name: "Прокачка задней части руки (ср.)", data: "handle behindM"},
-		{name: "Прокачка трицепса (ср.)", data: "upgrade tricepsM"},
-		{name: "Назад", data: "back3"},
+		{name: "Спина (ср.)", data: "backMidle"},
+		{name: "Руки (ср.)", data: "handleMidle"},
+		{name: "Ноги (ср.)", data: "kneesMidle"},
+		{name: "Трицепс (ср.)", data: "tricepsMidle"},
+		{name: "Бицепс (ср.)", data: "bicepsMidle"},
+		{name: "Назад", data: "midleBack"},
 	}
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, st := range states {
+		row := tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(st.name, st.data),
+		)
+		rows = append(rows, row)
+	}
+	return tgbotapi.NewInlineKeyboardMarkup(rows...)
+}
 
+// Сложный уровень
+func enlightenmentHard() tgbotapi.InlineKeyboardMarkup {
+	states := []button{
+		{name: "Спина (сл.)", data: "backHard"},
+		{name: "Руки (сл.)", data: "handleHard"},
+		{name: "Ноги (сл.)", data: "kneesHard"},
+		{name: "Трицепс (сл.)", data: "tricepsHard"},
+		{name: "Бицепс (сл.)", data: "bicepsHard"},
+		{name: "Назад", data: "hardBack"},
+	}
 	var rows [][]tgbotapi.InlineKeyboardButton
 	for _, st := range states {
 		row := tgbotapi.NewInlineKeyboardRow(
@@ -193,7 +232,7 @@ func enlightenmentMidle() tgbotapi.InlineKeyboardMarkup {
 // Меню «Профиль»
 func profileMenu() tgbotapi.InlineKeyboardMarkup {
 	states := []button{
-		{name: "Заполнить профиль", data: "profile_anket"}, // <-- запускаем пошаговый опрос
+		{name: "Заполнить профиль", data: "profile_anket"},
 		{name: "Показать профиль", data: "Show_profile"},
 		{name: "Назад", data: "back"},
 	}
@@ -208,7 +247,7 @@ func profileMenu() tgbotapi.InlineKeyboardMarkup {
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
-// ===================== ОБРАБОТКА INLINE-КНОПОК (из первого кода, с доработкой) =====================
+// ===================== ОБРАБОТКА INLINE-КНОПОК =====================
 
 func handleCallback(update tgbotapi.Update) {
 	data := update.CallbackQuery.Data
@@ -222,18 +261,47 @@ func handleCallback(update tgbotapi.Update) {
 	switch data {
 	// Главное меню
 	case "calorie":
-		// Оставляем старый текст "Здесь будет подсчет калорий (пока не реализовано)."
-		sendText(chatID, " ")
-		// А сразу после — запускаем «второй» опрос (из второго кода):
-		startCalorieWizard(chatID)
+		// Подсчёт калорий ТОЛЬКО из уже заполненного профиля
+		prof, ok := userProfiles[chatID]
+		if !ok || prof == nil || prof.Height == 0 || prof.Weight == 0 || prof.Age == 0 || prof.Gender == "" {
+			sendText(chatID, "Ваш профиль ещё не заполнен. Сначала перейдите в «Профиль» и заполните данные.")
+			return
+		}
+
+		// Конвертируем пол из "male"/"female" -> "мужской"/"женский" для формулы
+		genderForCalc := "женский"
+		if strings.ToLower(prof.Gender) == "male" {
+			genderForCalc = "мужской"
+		}
+
+		cals := calculateCalories(
+			genderForCalc,
+			float64(prof.Weight),
+			float64(prof.Height),
+			prof.Age,
+		)
+		msg := fmt.Sprintf("Ваш базовый обмен веществ: %.2f ккал/день\n(По данным профиля)", cals)
+		sendText(chatID, msg)
 
 	case "traine":
-		msg := tgbotapi.NewMessage(chatID, "Выберите уровень тренировки:")
+		msg := tgbotapi.NewMessage(chatID,
+			"🏋️‍♂️ *Выберите уровень тренировки*\n"+
+				"🟢 *Лёгкий уровень* — для начинающих и восстановления.\n"+
+				"🟡 *Средний уровень* — для тех, кто готов к вызову.\n"+
+				"🔴 *Сложный уровень* — для опытных и продвинутых.\n\n"+
+				"🔙 *Назад* — вернуться в главное меню.")
+		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = traineMenu()
 		sendMessage(msg)
 
 	case "profile":
-		msg := tgbotapi.NewMessage(chatID, "Настройка профиля:\nВыберите один из пунктов ниже:")
+		msg := tgbotapi.NewMessage(chatID,
+			"🧑‍💻 *Настройка профиля*\n"+
+				"Выберите, что вы хотите сделать:\n\n"+
+				"✏️ *Заполнить профиль* — внесите данные о своём росте, весе, возрасте и поле.\n"+
+				"👀 *Показать профиль* — просмотрите ваши сохранённые данные.\n"+
+				"🔙 *Назад* — вернуться в главное меню.")
+		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = profileMenu()
 		sendMessage(msg)
 
@@ -243,80 +311,179 @@ func handleCallback(update tgbotapi.Update) {
 			sendText(chatID, "Ваш профиль пока пуст. Нажмите «Заполнить профиль», чтобы внести данные.")
 			return
 		}
-		msg := "Ваш профиль:\n"
-		msg += "Рост: " + strconv.Itoa(prof.Height) + "\n"
-		msg += "Вес: " + strconv.Itoa(prof.Weight) + "\n"
-		msg += "Возраст: " + strconv.Itoa(prof.Age) + "\n"
-		msg += "Пол: " + prof.Gender + "\n"
-
+		msg := fmt.Sprintf("Ваш профиль:\nРост: %d см\nВес: %d кг\nВозраст: %d лет\nПол: %s",
+			prof.Height, prof.Weight, prof.Age, prof.Gender)
 		sendText(chatID, msg)
 
 	case "back":
-		// Главное меню
-		mainMsg := tgbotapi.NewMessage(chatID, "Привет! Я ваш помощник-бот. Вот что я умею:\n- 📚 Подсчет калорий\n- 🏋️‍♂️ Тренировки\n- 🧑‍💻 Профиль\n\nВыберите действие в меню или введите /start, /train, /profile.")
+		mainMsg := tgbotapi.NewMessage(chatID,
+			"👋 *Привет! Я ваш фитнес-помощник.*\n"+
+				"Вот, что я умею:\n\n"+
+				"🍎 *Подсчёт калорий* — помогу рассчитать дневную норму (по данным профиля).\n"+
+				"🏋️‍♂️ *Тренировки* — подберу подходящие упражнения.\n"+
+				"🧑‍💻 *Профиль* — сохраним ваши данные.\n"+
+				"📔 *Дневник* — записывайте достижения и тренировки.\n\n"+
+				"Выберите действие из меню или введите команду:\n"+
+				"- /start — Главное меню\n"+
+				"- /train — Перейти к тренировкам\n"+
+				"- /profile — Настроить/посмотреть профиль\n"+
+				"- /dnevnik — Записи и достижения.")
+		mainMsg.ParseMode = "Markdown"
 		mainMsg.ReplyMarkup = startMenu()
 		sendMessage(mainMsg)
 
 	case "profile_anket":
 		startProfileWizard(chatID)
 
-	// --- Кнопки тренировки ---
+	case "dnevnik":
+		msg := tgbotapi.NewMessage(chatID, "Вы находитесь в дневнике. Выберите действие:")
+		msg.ReplyMarkup = diaryMenu()
+		sendMessage(msg)
+
+	case "diary_add":
+		userStep[chatID] = diaryStepAdd
+		sendText(chatID, "Введите, что вы сегодня сделали (например, какие упражнения выполнили).")
+
+	case "diary_show":
+		entries := userDiary[chatID]
+		if len(entries) == 0 {
+			sendText(chatID, "Пока нет записей в дневнике.")
+			return
+		}
+		var sb strings.Builder
+		sb.WriteString("Ваши записи в дневнике:\n\n")
+		for i, entry := range entries {
+			dateStr := entry.Date.Format("2006-01-02 15:04")
+			sb.WriteString(fmt.Sprintf("%d) [%s] %s\n", i+1, dateStr, entry.Text))
+		}
+		sendText(chatID, sb.String())
+
+		msg := tgbotapi.NewMessage(chatID, "Выберите дальнейшее действие в дневнике:")
+		msg.ReplyMarkup = diaryMenu()
+		sendMessage(msg)
+
+	// Лёгкий уровень
 	case "Light":
 		msg := tgbotapi.NewMessage(chatID, "Вы выбрали лёгкий уровень.")
 		msg.ReplyMarkup = enlightenment()
 		sendMessage(msg)
 
+	case "backLight":
+		msg := tgbotapi.NewMessage(chatID, "Пример лёгкой тренировки для спины:\n"+
+			"1. «Кошка-корова» (Cat-Camel)\n2. Поза ребёнка (Child’s Pose)\n3. Superman (лёгкий вариант)\n"+
+			"и т.д. ...")
+		msg.ReplyMarkup = enlightenment()
+		sendMessage(msg)
+
+	case "handleLight":
+		sendText(chatID, "Руки (лёг.) — аналогично, добавьте описание упражнений.")
+
+	case "kneesLight":
+		sendText(chatID, "Ноги (лёг.) — аналогично, добавьте описание упражнений.")
+
+	case "tricepsLight":
+		sendText(chatID, "Трицепс (лёг.) — аналогично.")
+
+	case "bicepsLight":
+		// Пример: можно читать текст из .env
+		godotenv.Load()
+		bigText := os.Getenv("BICEPSL")
+		if bigText == "" {
+			bigText = "Пустая переменная BICEPSL"
+		}
+		msg := tgbotapi.NewMessage(chatID, bigText)
+		msg.ReplyMarkup = enlightenment()
+		sendMessage(msg)
+
+	case "lightBack":
+		msg := tgbotapi.NewMessage(chatID, "Выберите уровень тренировки:")
+		msg.ReplyMarkup = traineMenu()
+		sendMessage(msg)
+
+	// Средний уровень
 	case "Midle":
 		msg := tgbotapi.NewMessage(chatID, "Вы выбрали средний уровень.")
 		msg.ReplyMarkup = enlightenmentMidle()
 		sendMessage(msg)
 
+	case "backMidle":
+		sendText(chatID, "Спина (ср.) — аналогично, описание упражнений тут.")
+
+	case "handleMidle":
+		sendText(chatID, "Руки (ср.) — аналогично.")
+
+	case "kneesMidle":
+		sendText(chatID, "Ноги (ср.) — аналогично.")
+
+	case "tricepsMidle":
+		sendText(chatID, "Трицепс (ср.) — аналогично.")
+
+	case "bicepsMidle":
+		sendText(chatID, "Бицепс (ср.) — аналогично.")
+
+	case "midleBack":
+		msg := tgbotapi.NewMessage(chatID, "Выберите уровень тренировки:")
+		msg.ReplyMarkup = traineMenu()
+		sendMessage(msg)
+
+	// Сложный уровень
 	case "Hard":
-		sendText(chatID, "Вы выбрали сложный уровень.")
+		msg := tgbotapi.NewMessage(chatID, "Вы выбрали сложный уровень.")
+		msg.ReplyMarkup = enlightenmentHard()
+		sendMessage(msg)
 
-	case "back2":
+	case "backHard":
+		sendText(chatID, "Спина (сл.) — аналогично.")
+
+	case "handleHard":
+		sendText(chatID, "Руки (сл.) — аналогично.")
+
+	case "kneesHard":
+		sendText(chatID, "Ноги (сл.) — аналогично.")
+
+	case "tricepsHard":
+		sendText(chatID, "Трицепс (сл.) — аналогично.")
+
+	case "bicepsHard":
+		sendText(chatID, "Бицепс (сл.) — аналогично.")
+
+	case "hardBack":
 		msg := tgbotapi.NewMessage(chatID, "Выберите уровень тренировки:")
 		msg.ReplyMarkup = traineMenu()
 		sendMessage(msg)
-
-	case "Bicepslight":
-		sendText(chatID, "Тренировка бицепса (лёгкий уровень).")
-
-	case "back3":
-		msg := tgbotapi.NewMessage(chatID, "Выберите уровень тренировки:")
-		msg.ReplyMarkup = traineMenu()
-		sendMessage(msg)
-
-	case "handle upM":
-		sendText(chatID, "Ср. уровень, прокачка передней части руки.")
-
-	case "BicepslightM":
-		sendText(chatID, "Ср. уровень, прокачка бицепса.")
 	}
 }
 
-// ===================== ЗАПУСК ОПРОСА ДЛЯ ПРОФИЛЯ (из первого кода) =====================
-
+// ===================== ЗАПУСК ОПРОСА ДЛЯ ПРОФИЛЯ =====================
 func startProfileWizard(chatID int64) {
 	// Создаём (или очищаем) профиль для нового пользователя
 	if userProfiles[chatID] == nil {
 		userProfiles[chatID] = &user_profile{}
 	}
 
-	// Ставим на первый шаг — ввод роста
 	userStep[chatID] = profileStepHeight
-
 	sendText(chatID, "Давайте заполним ваш профиль.\nВведите ваш рост (в см):")
 }
 
-// ===================== ОБРАБОТКА КОМАНД (/start, /profile, /train, ...) =====================
-
+// ===================== ОБРАБОТКА КОМАНД =====================
 func handleCommands(update tgbotapi.Update) {
 	chatID := update.Message.Chat.ID
 
 	switch update.Message.Command() {
 	case "start":
-		msg := tgbotapi.NewMessage(chatID, "Привет! Я ваш помощник-бот.\nВот что я умею:\n- 📚 Подсчет калорий\n- 🏋️‍♂️ Список тренировок\n- 🧑‍💻 Профиль\n\nВыберите меню или введите команды: /train, /profile.")
+		msg := tgbotapi.NewMessage(chatID,
+			"👋 *Привет! Я ваш фитнес-помощник.*\n"+
+				"Вот, что я умею:\n"+
+				"🍎 *Подсчёт калорий* — помогу рассчитать дневную норму (по данным профиля).\n"+
+				"🏋️‍♂️ *Тренировки* — подберу подходящие упражнения.\n"+
+				"🧑‍💻 *Профиль* — сохраняю ваши данные.\n"+
+				"📔 *Дневник* — записывайте достижения.\n\n"+
+				"Выберите действие в меню или введите:\n"+
+				"- /train — Уровни тренировок\n"+
+				"- /profile — Профиль\n"+
+				"- /dnevnik — Дневник",
+		)
+		msg.ParseMode = "Markdown"
 		msg.ReplyMarkup = startMenu()
 		sendMessage(msg)
 
@@ -326,7 +493,8 @@ func handleCommands(update tgbotapi.Update) {
 		sendMessage(msg)
 
 	case "profile":
-		msg := tgbotapi.NewMessage(chatID, "Настройка профиля:\nВыберите пункт ниже:")
+		msg := tgbotapi.NewMessage(chatID,
+			"Настройка профиля:\nВыберите пункт ниже:")
 		msg.ReplyMarkup = profileMenu()
 		sendMessage(msg)
 
@@ -336,12 +504,11 @@ func handleCommands(update tgbotapi.Update) {
 }
 
 // ===================== ОБРАБОТКА ОБЫЧНЫХ СООБЩЕНИЙ =====================
-
 func handleMessage(update tgbotapi.Update) {
 	chatID := update.Message.Chat.ID
 	text := update.Message.Text
 
-	// 1) Проверяем, не в режиме ли пошагового опроса (wizard) для ПРОФИЛЯ
+	// Проверяем шаги профиля
 	switch userStep[chatID] {
 	case profileStepHeight:
 		height, err := strconv.Atoi(text)
@@ -350,10 +517,7 @@ func handleMessage(update tgbotapi.Update) {
 			return
 		}
 		userProfiles[chatID].Height = height
-
-		// Просто пример задержки и т.д.
 		time.Sleep(1 * time.Second)
-
 		sendText(chatID, "📝Рост сохранён!\nТеперь введите ваш вес (в кг):")
 		userStep[chatID] = profileStepWeight
 		return
@@ -365,7 +529,6 @@ func handleMessage(update tgbotapi.Update) {
 			return
 		}
 		userProfiles[chatID].Weight = weight
-
 		sendText(chatID, "📝Вес сохранён!\nТеперь введите ваш возраст (полных лет):")
 		userStep[chatID] = profileStepAge
 		return
@@ -377,115 +540,43 @@ func handleMessage(update tgbotapi.Update) {
 			return
 		}
 		userProfiles[chatID].Age = age
-
 		sendText(chatID, "📝Возраст сохранён!\nТеперь введите ваш пол (male/female):")
 		userStep[chatID] = profileStepGender
 		return
 
 	case profileStepGender:
-		if text != "male" && text != "female" {
+		g := strings.ToLower(text)
+		if g != "male" && g != "female" {
 			sendText(chatID, "Пожалуйста, введите 'male' или 'female'.")
 			return
 		}
-		userProfiles[chatID].Gender = text
-
-		sendText(chatID, "Отлично, все данные заполнены!\nТеперь можете посмотреть профиль через /profile во вкладки  «Показать профиль».")
+		userProfiles[chatID].Gender = g
+		sendText(chatID, "Отлично, все данные заполнены!\nТеперь вы можете проверить /profile -> «Показать профиль» или рассчитать калории.")
 		userStep[chatID] = profileStepDone
 		return
 	}
 
-	// 2) Если не в режиме опроса профиля, проверяем — не в опросе ли калорий
-	if userStep[chatID] >= calorieStepWeight && userStep[chatID] <= calorieStepGender {
-		handleCalorieWizard(chatID, text)
+	// Проверяем, не в режиме добавления записи в Дневник
+	if userStep[chatID] == diaryStepAdd {
+		entry := DiaryEntry{
+			Date: time.Now(),
+			Text: text,
+		}
+		userDiary[chatID] = append(userDiary[chatID], entry)
+		userStep[chatID] = 0
+
+		sendText(chatID, "Запись добавлена в ваш дневник!")
+		msg := tgbotapi.NewMessage(chatID, "Вы снова в дневнике. Выберите действие:")
+		msg.ReplyMarkup = diaryMenu()
+		sendMessage(msg)
 		return
 	}
 
-	// 3) Иначе — обычный текст
+	// Если не совпало ни с одним из «шагов» — отвечаем как на обычный текст
 	sendText(chatID, "Я получил ваше сообщение: "+text)
 }
 
-// ===================== ЛОГИКА «ВТОРОГО» БОТА: Опрашиваем для расчёта калорий =====================
-
-// startCalorieWizard — начинаем опрос по калориям
-func startCalorieWizard(chatID int64) {
-	// Создаём или обнуляем карту с ответами для данного пользователя
-	calorieData[chatID] = map[string]string{}
-
-	// Ставим шаг = calorieStepWeight
-	userStep[chatID] = calorieStepWeight
-
-	// Сообщение из второго кода (не изменяем текст!)
-	sendText(chatID, "Привет! Я помогу рассчитать твоё дневное количество калорий. Введи свой вес в кг:")
-}
-
-// handleCalorieWizard — пошаговая логика (взята из второго кода)
-func handleCalorieWizard(chatID int64, userMsg string) {
-	data := calorieData[chatID]
-
-	switch userStep[chatID] {
-	case calorieStepWeight:
-		weight, err := strconv.ParseFloat(userMsg, 64)
-		if err != nil {
-			sendText(chatID, "Пожалуйста, введи вес в числовом формате (например: 70.5):")
-			return
-		}
-		data["weight"] = strconv.FormatFloat(weight, 'f', 1, 64)
-
-		sendText(chatID, "Теперь введи свой рост в сантиметрах:")
-		userStep[chatID] = calorieStepHeight
-		return
-
-	case calorieStepHeight:
-		height, err := strconv.ParseFloat(userMsg, 64)
-		if err != nil {
-			sendText(chatID, "Пожалуйста, введи рост в числовом формате (например: 175):")
-			return
-		}
-		data["height"] = strconv.FormatFloat(height, 'f', 1, 64)
-
-		sendText(chatID, "Укажи свой возраст в годах:")
-		userStep[chatID] = calorieStepAge
-		return
-
-	case calorieStepAge:
-		age, err := strconv.Atoi(userMsg)
-		if err != nil {
-			sendText(chatID, "Пожалуйста, введи возраст в числовом формате (например: 25):")
-			return
-		}
-		data["age"] = strconv.Itoa(age)
-
-		sendText(chatID, "Теперь укажи свой пол (мужской или женский):")
-		userStep[chatID] = calorieStepGender
-		return
-
-	case calorieStepGender:
-		gender := strings.ToLower(strings.TrimSpace(userMsg))
-		if gender != "мужской" && gender != "женский" {
-			sendText(chatID, "Пожалуйста, укажи свой пол: мужской или женский.")
-			return
-		}
-		data["gender"] = gender
-
-		// Все данные собраны, рассчитываем калории
-		weightVal, _ := strconv.ParseFloat(data["weight"], 64)
-		heightVal, _ := strconv.ParseFloat(data["height"], 64)
-		ageVal, _ := strconv.Atoi(data["age"])
-		genderVal := data["gender"]
-
-		calories := calculateCalories(genderVal, weightVal, heightVal, ageVal)
-		result := fmt.Sprintf("Твой базовый обмен веществ (калории в день): %.2f ккал.", calories)
-
-		sendText(chatID, result)
-
-		// Сбрасываем данные
-		delete(calorieData, chatID)
-		userStep[chatID] = 0 // выходим из режима опроса
-	}
-}
-
 // ===================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====================
-
 func sendText(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	_, err := bot.Send(msg)
