@@ -12,9 +12,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// ===================== СТРУКТУРЫ И ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ =====================
 
-// Шаги пошагового опроса (профиля)
 const (
 	profileStepHeight = 1
 	profileStepWeight = 2
@@ -23,15 +21,12 @@ const (
 	profileStepDone   = 5
 )
 
-// Шаги для дневника
 const (
 	diaryStepAdd = 201
 )
 
-// userStep хранит текущий шаг (либо для профиля, либо для дневника) для каждого пользователя
 var userStep = make(map[int64]int)
 
-// user_profile хранит данные о пользователе
 type user_profile struct {
 	Height int
 	Weight int
@@ -39,7 +34,6 @@ type user_profile struct {
 	Gender string
 }
 
-// userProfiles хранит профили по chatID
 var userProfiles = make(map[int64]*user_profile)
 
 // Структура для описания «кнопок»
@@ -50,9 +44,7 @@ type button struct {
 
 var bot *tgbotapi.BotAPI
 
-// ===================== ЛОГИКА РАСЧЁТА КАЛОРИЙ =====================
-// Функция считает калории по формуле Харриса-Бенедикта (упрощённой).
-// gender здесь ожидается "мужской" или "женский".
+
 func calculateCalories(gender string, weight float64, height float64, age int) float64 {
 	if gender == "мужской" {
 		return 88.36 + (13.4 * weight) + (4.8 * height) - (5.7 * float64(age))
@@ -60,18 +52,14 @@ func calculateCalories(gender string, weight float64, height float64, age int) f
 	return 447.6 + (9.2 * weight) + (3.1 * height) - (4.3 * float64(age))
 }
 
-// ===================== ЛОГИКА ДНЕВНИКА =====================
 
-// Структура, описывающая одну запись в дневнике
 type DiaryEntry struct {
 	Date time.Time // Когда была сделана запись
 	Text string    // Текст записи
 }
 
-// userDiary хранит записи в дневнике для каждого chatID
 var userDiary = make(map[int64][]DiaryEntry)
 
-// Меню «Дневник»
 func diaryMenu() tgbotapi.InlineKeyboardMarkup {
 	states := []button{
 		{name: "Добавить запись", data: "diary_add"},
@@ -87,7 +75,6 @@ func diaryMenu() tgbotapi.InlineKeyboardMarkup {
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
-// ===================== MAIN =====================
 func main() {
 	// Загружаем токен из .env (или прописываем вручную)
 	err := godotenv.Load(".env")
@@ -129,9 +116,7 @@ func main() {
 	}
 }
 
-// ===================== МЕНЮ =====================
 
-// Главное меню
 func startMenu() tgbotapi.InlineKeyboardMarkup {
 	states := []button{
 		{name: "Подсчет калорий", data: "calorie"},
@@ -169,7 +154,6 @@ func traineMenu() tgbotapi.InlineKeyboardMarkup {
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
-// Лёгкий уровень
 func enlightenment() tgbotapi.InlineKeyboardMarkup {
 	states := []button{
 		{name: "Спина (лёг.)", data: "backLight"},
@@ -189,7 +173,6 @@ func enlightenment() tgbotapi.InlineKeyboardMarkup {
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
-// Средний уровень
 func enlightenmentMidle() tgbotapi.InlineKeyboardMarkup {
 	states := []button{
 		{name: "Спина (ср.)", data: "backMidle"},
@@ -209,7 +192,6 @@ func enlightenmentMidle() tgbotapi.InlineKeyboardMarkup {
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
-// Сложный уровень
 func enlightenmentHard() tgbotapi.InlineKeyboardMarkup {
 	states := []button{
 		{name: "Спина (сл.)", data: "backHard"},
@@ -229,7 +211,6 @@ func enlightenmentHard() tgbotapi.InlineKeyboardMarkup {
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
-// Меню «Профиль»
 func profileMenu() tgbotapi.InlineKeyboardMarkup {
 	states := []button{
 		{name: "Заполнить профиль", data: "profile_anket"},
@@ -247,28 +228,23 @@ func profileMenu() tgbotapi.InlineKeyboardMarkup {
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
-// ===================== ОБРАБОТКА INLINE-КНОПОК =====================
 
 func handleCallback(update tgbotapi.Update) {
 	data := update.CallbackQuery.Data
 	chatID := update.CallbackQuery.Message.Chat.ID
 	messageID := update.CallbackQuery.Message.MessageID
 
-	// Удаляем предыдущее сообщение (с кнопками)
 	del := tgbotapi.NewDeleteMessage(chatID, messageID)
 	_, _ = bot.Send(del)
 
 	switch data {
-	// Главное меню
 	case "calorie":
-		// Подсчёт калорий ТОЛЬКО из уже заполненного профиля
 		prof, ok := userProfiles[chatID]
 		if !ok || prof == nil || prof.Height == 0 || prof.Weight == 0 || prof.Age == 0 || prof.Gender == "" {
 			sendText(chatID, "Ваш профиль ещё не заполнен. Сначала перейдите в «Профиль» и заполните данные.")
 			return
 		}
 
-		// Конвертируем пол из "male"/"female" -> "мужской"/"женский" для формулы
 		genderForCalc := "женский"
 		if strings.ToLower(prof.Gender) == "male" {
 			genderForCalc = "мужской"
@@ -362,7 +338,6 @@ func handleCallback(update tgbotapi.Update) {
 		msg.ReplyMarkup = diaryMenu()
 		sendMessage(msg)
 
-	// Лёгкий уровень
 	case "Light":
 		msg := tgbotapi.NewMessage(chatID, "Вы выбрали лёгкий уровень.")
 		msg.ReplyMarkup = enlightenment()
@@ -400,7 +375,6 @@ func handleCallback(update tgbotapi.Update) {
 		msg.ReplyMarkup = traineMenu()
 		sendMessage(msg)
 
-	// Средний уровень
 	case "Midle":
 		msg := tgbotapi.NewMessage(chatID, "Вы выбрали средний уровень.")
 		msg.ReplyMarkup = enlightenmentMidle()
@@ -426,7 +400,6 @@ func handleCallback(update tgbotapi.Update) {
 		msg.ReplyMarkup = traineMenu()
 		sendMessage(msg)
 
-	// Сложный уровень
 	case "Hard":
 		msg := tgbotapi.NewMessage(chatID, "Вы выбрали сложный уровень.")
 		msg.ReplyMarkup = enlightenmentHard()
@@ -454,7 +427,6 @@ func handleCallback(update tgbotapi.Update) {
 	}
 }
 
-// ===================== ЗАПУСК ОПРОСА ДЛЯ ПРОФИЛЯ =====================
 func startProfileWizard(chatID int64) {
 	// Создаём (или очищаем) профиль для нового пользователя
 	if userProfiles[chatID] == nil {
@@ -465,7 +437,6 @@ func startProfileWizard(chatID int64) {
 	sendText(chatID, "Давайте заполним ваш профиль.\nВведите ваш рост (в см):")
 }
 
-// ===================== ОБРАБОТКА КОМАНД =====================
 func handleCommands(update tgbotapi.Update) {
 	chatID := update.Message.Chat.ID
 
@@ -503,12 +474,10 @@ func handleCommands(update tgbotapi.Update) {
 	}
 }
 
-// ===================== ОБРАБОТКА ОБЫЧНЫХ СООБЩЕНИЙ =====================
 func handleMessage(update tgbotapi.Update) {
 	chatID := update.Message.Chat.ID
 	text := update.Message.Text
 
-	// Проверяем шаги профиля
 	switch userStep[chatID] {
 	case profileStepHeight:
 		height, err := strconv.Atoi(text)
@@ -556,7 +525,6 @@ func handleMessage(update tgbotapi.Update) {
 		return
 	}
 
-	// Проверяем, не в режиме добавления записи в Дневник
 	if userStep[chatID] == diaryStepAdd {
 		entry := DiaryEntry{
 			Date: time.Now(),
@@ -576,7 +544,6 @@ func handleMessage(update tgbotapi.Update) {
 	sendText(chatID, "Я получил ваше сообщение: "+text)
 }
 
-// ===================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====================
 func sendText(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	_, err := bot.Send(msg)
